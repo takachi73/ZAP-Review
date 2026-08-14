@@ -1,0 +1,16 @@
+(* ZAP-Review ProVerif Model *)
+free real_id: bitstring [private].
+free prk_long: bitstring [private].
+
+query attacker(real_id). (* Should be false under RP compromise *)
+
+process
+  (* IA *)
+  new master_seed;
+  let share1 = f(master_seed,1) in
+  let share2 = f(master_seed,2) in
+  (* Attacker controls RP *)
+  out(c, prk_long) |
+  (* Attacker has 1 share *)
+  out(c, share1) |
+  (* Query reconstruction requires 3 shares + 3 BLS sigs *)
