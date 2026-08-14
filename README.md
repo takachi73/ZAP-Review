@@ -3,6 +3,19 @@
 *A next-generation architecture for secure, anonymous, and scalable academic peer review.*
 
 ---
+## What's New in Enhanced ZAP-Review (Proposed)
+
+- Feldman VSS for verifiable escrow
+- Threshold BLS for quorum opening
+- Macaroon capability tokens + PIR
+- Differentially private reputation (epsilon=1.0)
+- Temporal and stylometric deanonymization mitigation
+- Trillian audit log + ProVerif model
+
+## Roadmap
+- Phase 1: Reference implementation
+- Phase 2: Pilot at AI workshop <100 papers
+- Phase 3: Paper submission with formal proof and de-anonymization eval
 
 # 1. Problem Statement  
 ## Structural Vulnerabilities in Current Peer Review Systems
