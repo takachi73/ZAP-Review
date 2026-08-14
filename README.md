@@ -292,4 +292,4 @@ MIT License (draft)
 
 ```
 Takahashi, H. (2025). ZAP-Review: Zero-trust Audited Pseudonymous Review Framework.
-GitHub repository. https://github.com/ZAP-Review
+GitHub repository. https://github.com/takachi73/ZAP-Review
