@@ -1,0 +1,13 @@
+paths:
+  /papers/{id}/review:
+    post:
+      security:
+        - MacaroonAuth: []
+      x-caveats:
+        - action: submitReview
+        - paper_id: $path.id
+        - expiry: < 2027-03-01
+  /my/papers:
+    get:
+      x-privacy: PIR - server does not learn which papers are fetched
+      description: Uses SealPIR library, client sends encrypted query
