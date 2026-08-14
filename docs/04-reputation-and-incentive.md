@@ -1,94 +1,134 @@
-# 04 - Reputation, Incentive, and CV Problem with ZKP Verifiable Credentials
+# 04 - Reputation, Incentive, and Verifiable Career Credentials (v2)
 
-## Problem: Gap between Pseudonymous Reputation and Real-World Incentive
+## 1. Problem: Gap Between Pseudonymous Reputation and Real-World Incentive
 
-ZAP-Review's core value is long-term pseudonymous reputation (PRK_long) that persists across conferences. Reviewers earn better assignments and eligibility for AC/PC roles based on quality, not quantity, with no monetary reward.
+ZAP-Review provides long-term pseudonymous reputation via PRK_long that persists across conferences. Reviewers earn better assignments and eligibility for AC/PC roles.
 
-**Critical Gap:** The primary motivation for reviewers in academia is to show service on their CV for tenure and promotion: "Served as PC for ICLR 2027". How can a reviewer prove that they own a high-reputation PRK without breaking anonymity and revealing which papers they reviewed?
+Critical Gap (CV Problem): In academia, the main incentive for reviewing is to prove service for tenure: "Served as PC for ICLR 2027". How can a reviewer prove ownership of a high-reputation PRK without revealing which papers they reviewed?
 
-If this is not solved, high-quality reviewers will not join ZAP-Review.
+## 2. Threat Model: Credential Transfer Attack (Fixed in v2)
 
-## Requirements
+### v1 Vulnerability
+In v1 protocol, ZKP proves:
+Proof_v1 = { I possess ARC AND My real identity is X }
+But it does NOT prove:
+Proof_required = { I possess ARC AND The true owner of ARC is X }
 
-1.  Real-world verifiability: A university can verify "X was Top 10% reviewer at ICLR2027"
-2.  Paper anonymity: University must NOT learn which papers X reviewed
-3.  Separation of powers: IA must NOT learn reputation scores, KAA must NOT learn real identity
-4.  Unlinkability across conferences: Proving achievement at Conf A must not link to PRK at Conf B
+Attack Scenario:
+1. Excellent reviewer A receives ARC Top10%
+2. A transfers PRK_A + ARC to friend B
+3. B generates ZKP using B's real identity and A's ARC
+4. IA issues RAC: B is Top10% reviewer -> Fraud
 
-## Proposed Solution: Two-Stage Verifiable Credential with BBS+ and Blind Signatures
+Root cause: PRK issuance was not bound to real identity at registration.
 
-We introduce Accountable Career Credentials using W3C Verifiable Credentials (VC) + BBS+ Signatures for selective disclosure.
+## 3. Design Goals
+1. Real-world verifiability
+2. Paper anonymity
+3. Non-transferability
+4. Separation of powers: IA never learns reputation, KAA never learns real_id
+5. Unlinkability
+6. Recoverability
 
-### Actors
-- KAA: Knows reputation[PRK_long], does NOT know real identity
-- IA: Knows real identity, does NOT know reputation or paper assignments
-- Reviewer: Knows both, holds PRK_long secret key
-- Verifier: University / Employer
+## 4. Protocol v2: Identity-Bound Anonymous Credentials
 
-### Protocol
+### 4.1 Primitives
+- Pedersen Commitment: com_id = Commit(real_id, r)
+- BBS+ Signature for selective disclosure
+- Groth16 ZKP
+- KDF: PRK_long = KDF(WebAuthn PRF || com_id)
 
-**Phase 1: KAA issues Anonymous Reputation Credential (ARC)**
+### 4.2 Registration - Binding at Birth
+Client-side during ORCID auth:
+r = random()
+com_id = pedersen_commit(Hash(X), r)
+prf_out = webauthn_get_prf("ZAP-Review")
+PRK_long = KDF(prf_out, com_id)
 
-After conference ends, KAA computes for each PRK_long:
-ARC = BBS+_Sign(KAA_sk, {
-prk_long_commitment = Commit(PRK_long),
-conference_id = "ICLR2027",
-reputation_bucket = "Top10%", // not exact score
-role = "reviewer"
+To IA: com_id + ZKP well-formed for X
+To KAA: com_id + Commit(PRK_long)
+IA stores: X <-> com_id
+KAA stores: com_id <-> PRK_long commitment
+Binding X --com_id-- PRK_long without single party knowing both ends.
+
+### 4.3 Phase 1: KAA Issues ARC_v2
+After conference:
+ARC_v2 = BBS+_Sign(KAA_sk, {
+  prk_commitment: Commit(PRK_long),
+  id_commitment: com_id, // CRITICAL
+  conference_id: "ICLR2027",
+  reputation_bucket: "Top10%",
+  role: "reviewer"
 })
 
-
-ARC is sent to reviewer via PRK secure channel. KAA does not know real identity.
-
-**Phase 2: IA issues Real-World Achievement Credential (RAC) via Blind Proof**
-
-Reviewer generates ZKP:
-Proof = ZKP{
-I know sk such that:
-
-Commit(PRK_long) opens to PRK_long corresponding to ARC
-2. ARC is validly signed by KAA
-3. My real identity is registered as X in IA
+### 4.4 Phase 2: IA Issues RAC via ZKP_v2
+Browser generates:
+ZKP_v2 = Prove {
+  public: com_id, KAA_pk
+  private: X, r, PRK_long, ARC_v2
+  Statement:
+    1. com_id == Commit(X, r)
+    2. BBS+_Verify(KAA_pk, ARC_v2, {Commit(PRK_long), com_id, ...})
+    3. PRK_long == KDF(WebAuthn PRF, com_id)
 }
-
-Reviewer sends Proof (not ARC itself) to IA. IA verifies Proof and blindly issues:
+IA verifies ZKP_v2, then issues:
 RAC = BBS+_Sign(IA_sk, {
-real_id = X,
-achievement = "Top10% Reviewer at ICLR2027",
-timestamp,
-// NO PRK, NO paper_ids, NO exact score
+  real_id: X,
+  achievement: "Top10% Reviewer at ICLR2027",
+  conference_id: "ICLR2027",
+  bucket: "Top10%",
+  log_index: Trillian_index
 })
 
+### 4.5 Phase 3: Verification
+Reviewer discloses {X, Top10% at ICLR2027} via BBS+ selective disclosure.
+University verifies with IA_pk.
 
-**Phase 3: Selective Disclosure to Verifier**
+## 5. Security Analysis
 
-Reviewer presents RAC to university. Using BBS+ selective disclosure, reviewer can prove:
+| Attack | v1 | v2 Mitigation |
+| Credential Transfer A->B | Vulnerable | Impossible. B cannot open Commit(A) as Commit(B) |
+| Sybil | Possible | IA enforces 1 com_id per real_id via ORCID |
+| IA Forges RAC | Possible | Threshold BLS + Transparency Log |
+| KAA Learns Real ID | No | KAA only sees hiding com_id |
 
-"I am X and I hold a valid RAC for Top10% at ICLR2027"
+Proof Sketch: Transfer requires finding r' with Commit(A,r_A)=Commit(B,r'). Breaks Pedersen binding.
 
-Without revealing: PRK_long, ARC, or any link to other conferences.
+## 6. Key Management and UX - Mitigating Key Loss
 
-### Security Analysis
+Layer 1: WebAuthn Passkey PRF (Primary)
+PRK_long = KDF(WebAuthn_PRF, com_id)
+- Stored in Secure Enclave, synced via iCloud/Google
+- No raw key export
 
-| Attack | Mitigation |
-|---|---|
-| IA learns which papers reviewer reviewed | IA only sees ZKP of ARC ownership, not paper_ids |
-| KAA learns real identity | KAA only sees PRK_long, never real_id |
-| University links reviewer across conferences | Each RAC is independent, BBS+ provides unlinkability |
-| Collusion IA+KAA | Requires breaking ZKP soundness + BBS+ unforgeability. Still needs 3-of-5 BLS threshold for full deanonymization |
+Layer 2: Encrypted Cloud Backup
+ciphertext = AES-GCM_Encrypt(passphrase, PRK_long)
+Stored in KAA, KAA cannot decrypt.
 
-### Implementation
+Layer 3: Social Recovery
+r Shamir-shared 2-of-3 to trusted peers.
 
-- Library: `docknetwork/crypto` or `mattrglobal/bbs-signatures` for BBS+
-- ZKP: Circom + Groth16 for proof of BBS+ ownership
-- VC Format: W3C VC v2.0 JSON-LD
+UX: Click "Generate Career Proof" -> Touch ID -> 3 sec WASM ZKP -> Download PDF VC.
 
-### Open Issue
+## 7. Governance: Mitigating IA Centralization
 
-IA becomes VC issuer, increasing its trust. Mitigation: IA's signing key is itself threshold-shared (2-of-3 university registrars). IA can only sign if KAA's ARC proof is valid, enforced in code.
+A: Threshold BLS: IA_sk is 2-of-3 BLS (ACM, IEEE CS, ICLR Foundation)
+B: Transparency Log: Every RAC appends Hash(RAC) to Trillian Merkle tree. Public audit of counts.
+C: Consortium Agreement: Annual audit.
 
-## Roadmap
+## 8. Implementation
+- BBS+: mattrglobal/bbs-signatures
+- ZKP: Circom + SnarkJS Groth16
+- WebAuthn: SimpleWebAuthn PRF extension
+- Commitment: curve25519-dalek
+- Log: Google Trillian / Sigstore Rekor
 
-- Phase 1: Define ARC/RAC schema
-- Phase 2: Prototype with Dock BBS+
-- Phase 3: User study on tenure committees' acceptance
+## 9. Evaluation Plan
+1. Non-transferability: ProVerif model
+2. Performance: ZKP time on M1 / iPhone / Pixel (<4 sec)
+3. UX: 20 researchers SUS score
+4. Governance: Simulate 1 malicious IA share
+
+## 10. Future Work
+- k-anonymous multi-conference proof
+- RAC revocation list
